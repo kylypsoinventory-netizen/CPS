@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Customer Purchase System</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#011237">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CPS">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #011237; overflow: hidden; }
+  #app { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; opacity: 0; transition: opacity .25s; }
+  #app.ready { opacity: 1; }
+  #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #fff; font: 600 15px system-ui, sans-serif; }
+  #splash img { width: 120px; height: 120px; border-radius: 26px; }
+  #offline { display: none; position: fixed; inset: 0; background: #fff; color: #334155; font: 15px system-ui, sans-serif; align-items: center; justify-content: center; text-align: center; padding: 24px; flex-direction: column; gap: 14px; }
+  #pushBar { display: none; position: fixed; left: 10px; right: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 20; background: #011237; color: #fff; border-radius: 14px; padding: 12px 14px; font: 14px/1.4 system-ui, sans-serif; box-shadow: 0 6px 24px rgba(0,0,0,.35); align-items: center; gap: 10px; }
+  #pushBar button { border: 0; border-radius: 10px; padding: 9px 14px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  #pushGo { background: #22c55e; color: #052e16; }
+  #pushX { background: transparent; color: #cbd5e1; font-size: 20px !important; padding: 4px 8px !important; }
+  #offline button { background: #011237; color: #fff; border: 0; border-radius: 10px; padding: 12px 22px; font-size: 15px; font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="splash"><img src="icon-192.png" alt=""></div>
+<iframe id="app" allow="camera; microphone; clipboard-read; clipboard-write; fullscreen" title="Customer Purchase System"></iframe>
+<div id="offline"><div><b>Walang internet.</b><br>Kailangan ng connection para magamit ang system.</div><button onclick="load()">Subukan ulit</button></div>
+<div id="pushBar"><div id="pushMsg" style="flex:1"></div><button id="pushGo">I-on</button><button id="pushX" aria-label="Isara">&times;</button></div>
+<script src="firebase-config.js"></script>
+<script>
+  /* ⬇️ PALITAN ITO ng /exec link ng Apps Script web app mo */
+  var APP_URL = 'PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE';
+
+  var TOKEN_KEY = 'cps_shell_token';
+  var TOKEN_RE = /^[a-f0-9]{32,80}$/;
+  var frame = document.getElementById('app');
+
+  function storeGet() { try { return localStorage.getItem(TOKEN_KEY) || sessionStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
+  function storeClear() { try { localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+
+  /* Ang login token ay itinatabi dito sa shell para hindi mawala ang "Stay logged in" sa phone */
+  window.addEventListener('message', function (e) {
+    var fromGoogle = /^https:\/\/([a-z0-9-]+\.)*googleusercontent\.com$/.test(e.origin) || e.origin === 'https://script.google.com';
+    if (!fromGoogle || !e.data || typeof e.data !== 'object') return;
+    if (e.data.cps === 'token' && TOKEN_RE.test(String(e.data.token))) {
+      storeClear();
+      try { (e.data.remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, e.data.token); } catch (x) {}
+    } else if (e.data.cps === 'logout') {
+      storeClear();
+    } else if (e.data.cps === 'enablePush') {
+      pushStart(true);
+    }
+  });
+
+  var FCM_KEY = 'cps_fcm', FCM_RE = /^[A-Za-z0-9_\-:.]{20,500}$/, ROOM_RE = /^[\w:.|@\-]{1,80}$/;
+  var pendingRoom = '';
+  try { var _q = new URLSearchParams(location.search).get('room') || ''; if (ROOM_RE.test(_q)) pendingRoom = _q; } catch (e) {}
+  function fcmGet() { try { return localStorage.getItem(FCM_KEY) || ''; } catch (e) { return ''; } }
+
+  function buildUrl() {
+    var p = [], t = storeGet(), f = fcmGet();
+    if (TOKEN_RE.test(t)) p.push('t=' + t);
+    if (FCM_RE.test(f)) p.push('f=' + encodeURIComponent(f));
+    if (pendingRoom) p.push('r=' + encodeURIComponent(pendingRoom));
+    return p.length ? APP_URL + (APP_URL.indexOf('?') > -1 ? '&' : '?') + p.join('&') : APP_URL;
+  }
+
+  function showMsg(html) {
+    var box = document.getElementById('offline');
+    box.querySelector('div').innerHTML = html;
+    box.querySelector('button').style.display = 'none';
+    box.style.display = 'flex';
+  }
+
+  function load() {
+    if (APP_URL.indexOf('PASTE_') === 0) { showMsg('<b>Kulang pa ang setup.</b><br>Ilagay ang /exec link ng Apps Script sa <code>APP_URL</code> sa index.html.'); return; }
+    if (!navigator.onLine) {
+      var box = document.getElementById('offline');
+      box.querySelector('div').innerHTML = '<b>Walang internet.</b><br>Kailangan ng connection para magamit ang system.';
+      box.querySelector('button').style.display = '';
+      box.style.display = 'flex';
+      return;
+    }
+    document.getElementById('offline').style.display = 'none';
+    frame.onload = function () { frame.classList.add('ready'); document.getElementById('splash').style.display = 'none'; frameLoaded = true; setTimeout(function () { pushStart(false); }, 1500); };
+    frame.src = buildUrl();
+    pendingRoom = '';
+  }
+  window.addEventListener('online', load);
+
+  /* ── PUSH NOTIFICATIONS (Firebase Cloud Messaging) ── */
+  var frameLoaded = false, messaging = null, fbReady = null, pushReloads = 0;
+  var FB_VER = '10.12.2';
+  function pushConfigured() {
+    var c = self.FIREBASE_CONFIG, k = self.FIREBASE_VAPID_KEY;
+    return !!(c && c.apiKey && String(c.apiKey).indexOf('PASTE_') !== 0 && k && String(k).indexOf('PASTE_') !== 0);
+  }
+  function isIOS() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+  function isStandalone() { return navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches); }
+  function loadScript(src) { return new Promise(function (res, rej) { var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+
+  function pushBar(msg, showGo) {
+    var bar = document.getElementById('pushBar');
+    if (!msg) { bar.style.display = 'none'; return; }
+    document.getElementById('pushMsg').innerHTML = msg;
+    document.getElementById('pushGo').style.display = showGo ? '' : 'none';
+    bar.style.display = 'flex';
+  }
+  document.getElementById('pushX').onclick = function () { try { localStorage.setItem('cps_push_dismiss', String(Date.now())); } catch (e) {} pushBar(''); };
+  document.getElementById('pushGo').onclick = function () { pushAsk(); };
+  function dismissedRecently() { try { return Date.now() - Number(localStorage.getItem('cps_push_dismiss') || 0) < 3 * 86400000; } catch (e) { return false; } }
+
+  function ensureFirebase() {
+    if (fbReady) return fbReady;
+    fbReady = loadScript('https://www.gstatic.com/firebasejs/' + FB_VER + '/firebase-app-compat.js')
+      .then(function () { return loadScript('https://www.gstatic.com/firebasejs/' + FB_VER + '/firebase-messaging-compat.js'); })
+      .then(function () {
+        if (!firebase.apps.length) firebase.initializeApp(self.FIREBASE_CONFIG);
+        return Promise.resolve(firebase.messaging.isSupported()).then(function (ok) {
+          if (!ok) throw new Error('unsupported');
+          messaging = firebase.messaging();
+        });
+      });
+    return fbReady;
+  }
+
+  function pushToken() {
+    return ensureFirebase()
+      .then(function () { return navigator.serviceWorker.ready; })
+      .then(function (reg) { return messaging.getToken({ vapidKey: self.FIREBASE_VAPID_KEY, serviceWorkerRegistration: reg }); })
+      .then(function (tok) {
+        if (tok && FCM_RE.test(tok) && tok !== fcmGet()) {
+          try { localStorage.setItem(FCM_KEY, tok); } catch (e) {}
+          if (frameLoaded && pushReloads < 2) { pushReloads++; load(); }   /* i-reload nang isang beses para maipasa ang token sa system */
+        }
+      }).catch(function () {});
+  }
+
+  function pushAsk() {
+    pushBar('');
+    Notification.requestPermission().then(function (p) { if (p === 'granted') pushToken(); }).catch(function () {});
+  }
+
+  function pushStart(userInitiated) {
+    if (!pushConfigured() || !('Notification' in window) || !('serviceWorker' in navigator)) return;
+    if (isIOS() && !isStandalone()) {
+      if (userInitiated || !dismissedRecently()) pushBar('Para sa notifications sa iPhone: pindutin ang <b>Share</b> → <b>Add to Home Screen</b>, tapos buksan ang app mula sa Home Screen.', false);
+      return;
+    }
+    var perm = Notification.permission;
+    if (perm === 'granted') { pushToken(); return; }
+    if (perm === 'denied') { if (userInitiated) pushBar('Naka-block ang notifications. I-allow sa Settings ng phone para sa app na ito.', false); return; }
+    if (userInitiated || !dismissedRecently()) pushBar('🔔 I-on ang notifications para may pop-up ang mga bagong mensahe at order.', true);
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+    navigator.serviceWorker.addEventListener('message', function (ev) {
+      if (ev.data && ev.data.cps === 'openRoom' && ROOM_RE.test(String(ev.data.room || ''))) { pendingRoom = ev.data.room; load(); }
+    });
+  }
+  load();
+</script>
+</body>
+</html>
