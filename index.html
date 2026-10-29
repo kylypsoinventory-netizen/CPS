@@ -54,8 +54,55 @@
       storeClear();
     } else if (e.data.cps === 'enablePush') {
       pushStart(true);
+    } else if (e.data.cps === 'recStart') {
+      recStart(e);
+    } else if (e.data.cps === 'recStop') {
+      recStop(!!e.data.send);
     }
   });
+
+  /* ── VOICE RECORD: dito ginagawa (labas ng Google iframe) dahil hinaharang ng Google ang mikropono sa loob ng Apps Script ── */
+  var rec = null;
+  function recReply(r, msg) { try { r.src.postMessage(msg, r.origin); } catch (x) {} }
+  function recStart(e) {
+    if (rec) return;
+    var r = { src: e.source, origin: e.origin, chunks: [], t0: 0, send: false, mime: '', stream: null, mr: null, guard: null };
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      recReply(r, { cps: 'recState', state: 'error', msg: 'Hindi suportado ng device na ito ang voice record.' }); return;
+    }
+    rec = r;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      if (rec !== r) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      var types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'], mt = '';
+      for (var i = 0; i < types.length; i++) { if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(types[i])) { mt = types[i]; break; } }
+      var mr = mt ? new MediaRecorder(stream, { mimeType: mt }) : new MediaRecorder(stream);
+      r.stream = stream; r.mr = mr; r.mime = (mr.mimeType || mt || 'audio/mp4'); r.t0 = Date.now();
+      mr.ondataavailable = function (ev) { if (ev.data && ev.data.size) r.chunks.push(ev.data); };
+      mr.onstop = function () {
+        stream.getTracks().forEach(function (t) { t.stop(); });
+        clearTimeout(r.guard);
+        if (rec === r) rec = null;
+        if (!r.send) return;
+        var base = r.mime.split(';')[0], dur = Math.round((Date.now() - r.t0) / 1000);
+        var blob = new Blob(r.chunks, { type: base });
+        if (dur < 1 || blob.size < 500) return;
+        var fr = new FileReader();
+        fr.onload = function () { recReply(r, { cps: 'recDone', dataUrl: String(fr.result), mime: base, dur: dur }); };
+        fr.readAsDataURL(blob);
+      };
+      mr.start();
+      r.guard = setTimeout(function () { recStop(true); }, 125000);   /* pangkaligtasan: hindi lalampas ng 2 minuto */
+      recReply(r, { cps: 'recState', state: 'started' });
+    }).catch(function (err) {
+      if (rec === r) rec = null;
+      recReply(r, { cps: 'recState', state: 'error', msg: (err && err.name) ? '(' + err.name + ')' : '' });
+    });
+  }
+  function recStop(send) {
+    var r = rec; if (!r || !r.mr) { if (r && !send) rec = null; return; }
+    r.send = !!send;
+    try { r.mr.stop(); } catch (x) { try { r.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (y) {} rec = null; }
+  }
 
   var FCM_KEY = 'cps_fcm', FCM_RE = /^[A-Za-z0-9_\-:.]{20,500}$/, ROOM_RE = /^[\w:.|@\-]{1,80}$/;
   var pendingRoom = '';
