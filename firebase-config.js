@@ -4,7 +4,8 @@ self.FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBiqlOQxMchW00FkbxkwE3BRQ9_FdwjjtY',
   authDomain: 'customer-purchase-system.firebaseapp.com',
   projectId: 'customer-purchase-system',
-  messagingSenderId: 'customer-purchase-system.firebasestorage.app',
+  storageBucket: 'customer-purchase-system.firebasestorage.app',
+  messagingSenderId: '86619064091',
   appId: '1:86619064091:web:cfbd1e679376ceb0bcb5be'
 };
 /* Project settings → Cloud Messaging → Web Push certificates → Generate key pair */
