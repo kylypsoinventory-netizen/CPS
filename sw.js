@@ -1,5 +1,5 @@
 /* Shell lang ang kine-cache (hindi ang system mismo), para laging updated ang data mula sa Google. */
-const CACHE = 'cps-shell-v4';
+const CACHE = 'cps-shell-v5';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 /* ── Push notifications (Firebase Cloud Messaging) ── */
@@ -31,7 +31,11 @@ self.addEventListener('notificationclick', function (e) {
   }));
 });
 
-self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
+/* Isa-isang idinadagdag ang shell files: kahit may nawawalang file, hindi mapipigilan ang pag-install ng SW (at ng push) */
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {})))));
+  self.skipWaiting();
+});
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))));
   self.clients.claim();
